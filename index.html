@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Duelo de IAs Interactivo</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+body { background-color: #09090b; color: #f4f4f5; }
+.chat-scroll::-webkit-scrollbar { width: 4px; }
+.chat-scroll::-webkit-scrollbar-thumb { background: #27272a; border-radius: 4px; }
+button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+/* 16px evita que iOS haga zoom al enfocar campos */
+input, textarea { font-size: 16px !important; }
+</style>
+</head>
+<body class="flex flex-col h-[100dvh] max-w-md mx-auto font-sans relative">
+
+<!-- CABECERA -->
+<header class="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur sticky top-0 z-10">
+  <div>
+    <h1 class="font-bold text-sm text-zinc-100">💬 Colisión de IAs</h1>
+    <p class="text-xs text-zinc-400" id="status-text">Pausado (Configura tus claves)</p>
+  </div>
+  <div class="flex items-center gap-2">
+    <button type="button" id="settings-btn" class="p-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-xs cursor-pointer">⚙️ Ajustes</button>
+    <button type="button" id="play-btn" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-bold transition cursor-pointer">▶️ Play</button>
+  </div>
+</header>
+
+<!-- MODAL DE CONFIGURACIÓN -->
+<div id="settings-modal" style="display: none;" class="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm p-4 flex-col justify-center">
+  <div class="w-full max-w-md mx-auto bg-zinc-900 border border-zinc-800 p-4 rounded-2xl max-h-[90dvh] overflow-y-auto space-y-4 text-xs">
+    <div class="flex justify-between items-center font-bold text-sm">
+      <span>Configuración de Agentes</span>
+      <button type="button" id="close-settings-btn" class="text-zinc-400 hover:text-white text-base cursor-pointer p-1">✕ Cerrar</button>
+    </div>
+
+    <div class="space-y-3">
+      <div>
+        <label class="text-cyan-400 block mb-1 font-semibold" for="key-a">API Key Groq (IA A)</label>
+        <input type="password" id="key-a" autocomplete="off" class="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-zinc-200" placeholder="gsk_...">
+      </div>
+      <div>
+        <label class="text-zinc-400 block mb-1" for="model-a">Modelo IA A</label>
+        <input type="text" id="model-a" class="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-zinc-200" value="llama-3.1-8b-instant">
+      </div>
+      <div>
+        <label class="text-zinc-400 block mb-1" for="prompt-a">System Prompt IA A</label>
+        <textarea id="prompt-a" rows="3" class="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-zinc-200">Eres un filósofo cínico que discute sobre cualquier tontería como si fuera el fin del mundo. Sé breve (máx 2 frases).</textarea>
+      </div>
+
+      <hr class="border-zinc-800">
+
+      <div>
+        <label class="text-purple-400 block mb-1 font-semibold" for="key-b">API Key Gemini (IA B)</label>
+        <input type="password" id="key-b" autocomplete="off" class="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-zinc-200" placeholder="AIzaSy...">
+      </div>
+      <div>
+        <label class="text-zinc-400 block mb-1" for="model-b">Modelo IA B</label>
+        <input type="text" id="model-b" class="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-zinc-200" value="gemini-2.5-flash">
+      </div>
+      <div>
+        <label class="text-zinc-400 block mb-1" for="prompt-b">System Prompt IA B</label>
+        <textarea id="prompt-b" rows="3" class="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-zinc-200">Eres un optimista tecnológico hiperactivo que cree que todo se soluciona con IA y buena vibra. Sé breve (máx 2 frases).</textarea>
+      </div>
+    </div>
+
+    <button type="button" id="save-settings-btn" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold text-xs transition cursor-pointer">Guardar Configuración</button>
+  </div>
+</div>
+
+<!-- ÁREA DE MENSAJES -->
+<main id="chat-box" class="chat-scroll flex-1 overflow-y-auto p-4 space-y-3 text-xs flex flex-col">
+  <div class="text-center text-zinc-500 py-8 space-y-2">
+    <p>👋 ¡Bienvenido!</p>
+    <p>1. Pulsa en ⚙️ Ajustes y pon tus claves de Groq y Gemini.</p>
+    <p>2. Dale al Play superior para iniciar la conversación automática.</p>
+    <p>3. Escribe abajo cuando quieras intervenir en mitad de la charla.</p>
+  </div>
+</main>
+
+<!-- BARRA INFERIOR: INTERVENCIÓN -->
+<footer class="p-3 border-t border-zinc-800 bg-zinc-950 flex gap-2" style="padding-bottom: max(0.75rem, env(safe-area-inset-bottom));">
+  <input type="text" id="user-input" enterkeyhint="send" placeholder="Mete cizaña o cambia de tema..." class="flex-1 min-w-0 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-zinc-200 focus:outline-none focus:border-zinc-700">
+  <button type="button" id="send-btn" class="bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-xl text-xs font-medium transition cursor-pointer">Enviar</button>
+</footer>
+
+<script>
+let isRunning = false;
+let isBusy = false;
+let currentTurn = 'A';
+// Cada entrada: { speaker: 'A' | 'B' | 'user', text }
+let conversationHistory = [];
+
+const $ = (id) => document.getElementById(id);
+
+function store(key, value) {
+  try { localStorage.setItem(key, value); } catch (e) {}
+}
+function load(key) {
+  try { return localStorage.getItem(key); } catch (e) { return null; }
+}
+
+function loadSettings() {
+  const map = { keyA: 'key-a', keyB: 'key-b', modelA: 'model-a', modelB: 'model-b', promptA: 'prompt-a', promptB: 'prompt-b' };
+  for (const [key, id] of Object.entries(map)) {
+    const v = load(key);
+    if (v) $(id).value = v;
+  }
+}
+
+function openSettings() { $('settings-modal').style.display = 'flex'; }
+function closeSettings() { $('settings-modal').style.display = 'none'; }
+function toggleSettings() {
+  $('settings-modal').style.display === 'flex' ? closeSettings() : openSettings();
+}
+
+function saveSettings() {
+  store('keyA', $('key-a').value.trim());
+  store('keyB', $('key-b').value.trim());
+  store('modelA', $('model-a').value.trim());
+  store('modelB', $('model-b').value.trim());
+  store('promptA', $('prompt-a').value);
+  store('promptB', $('prompt-b').value);
+  closeSettings();
+  $('status-text').textContent = isRunning ? 'Conversando en directo...' : 'Listo. Pulsa Play';
+}
+
+function setRunning(running, statusMsg) {
+  isRunning = running;
+  const btn = $('play-btn');
+  if (running) {
+    btn.textContent = '⏸️ Pausa';
+    btn.className = 'px-3 py-1.5 bg-amber-600 hover:bg-amber-500 rounded-lg text-xs font-bold transition cursor-pointer';
+  } else {
+    btn.textContent = '▶️ Play';
+    btn.className = 'px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-bold transition cursor-pointer';
+  }
+  $('status-text').textContent = statusMsg || (running ? 'Conversando en directo...' : 'Pausado');
+}
+
+function togglePlay() {
+  if (!$('key-a').value.trim() || !$('key-b').value.trim()) {
+    alert('Introduce primero tus API Keys en Ajustes.');
+    openSettings();
+    return;
+  }
+  setRunning(!isRunning);
+  if (isRunning && !isBusy) loopStep();
+}
+
+function appendMessage(sender, text, styleClass) {
+  const box = $('chat-box');
+  const div = document.createElement('div');
+  div.className = `p-3 rounded-xl border ${styleClass} max-w-[85%]`;
+  const name = document.createElement('p');
+  name.className = 'font-bold mb-1 opacity-75';
+  name.textContent = sender;
+  const body = document.createElement('p');
+  body.className = 'leading-relaxed whitespace-pre-wrap';
+  body.textContent = text; // textContent: evita inyectar HTML de las respuestas
+  div.append(name, body);
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function stopWithError(who, err) {
+  appendMessage(`Error ${who}`, err.message || String(err), 'bg-red-950/40 border-red-800 text-red-300 mx-auto');
+  setRunning(false, 'Pausado por error');
+}
+
+async function loopStep() {
+  if (!isRunning || isBusy) return;
+  isBusy = true;
+  let ok;
+  try {
+    ok = currentTurn === 'A' ? await callGroq() : await callGemini();
+  } finally {
+    isBusy = false;
+  }
+  if (ok) currentTurn = currentTurn === 'A' ? 'B' : 'A';
+  if (isRunning) setTimeout(loopStep, 3500);
+}
+
+// Construye el historial desde el punto de vista de cada IA:
+// sus propios mensajes son "assistant/model", el resto "user".
+function historyFor(me) {
+  return conversationHistory.map(m => {
+    if (m.speaker === me) return { mine: true, text: m.text };
+    const label = m.speaker === 'user' ? 'Intervención del usuario' : `IA ${m.speaker} dice`;
+    return { mine: false, text: `[${label}]: ${m.text}` };
+  });
+}
+
+async function callGroq() {
+  const apiKey = $('key-a').value.trim();
+  const model = $('model-a').value.trim();
+  const systemPrompt = $('prompt-a').value;
+
+  const messages = [{ role: 'system', content: systemPrompt }];
+  historyFor('A').forEach(m => messages.push({ role: m.mine ? 'assistant' : 'user', content: m.text }));
+  if (messages.length === 1) messages.push({ role: 'user', content: 'Empieza tú la conversación con un tema cualquiera.' });
+
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages, max_tokens: 150 })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    const reply = data.choices[0].message.content.trim();
+    appendMessage('🤖 IA A (Cínico)', reply, 'bg-cyan-950/30 border-cyan-800/40 text-cyan-200 mr-auto');
+    conversationHistory.push({ speaker: 'A', text: reply });
+    return true;
+  } catch (err) {
+    stopWithError('IA A', err);
+    return false;
+  }
+}
+
+async function callGemini() {
+  const apiKey = $('key-b').value.trim();
+  const model = $('model-b').value.trim();
+  const systemPrompt = $('prompt-b').value;
+
+  const contents = historyFor('B').map(m => ({ role: m.mine ? 'model' : 'user', parts: [{ text: m.text }] }));
+  if (!contents.length) contents.push({ role: 'user', parts: [{ text: 'Empieza tú la conversación con un tema cualquiera.' }] });
+
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents
+      })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    const parts = data.candidates?.[0]?.content?.parts;
+    if (!parts) throw new Error('Gemini no devolvió texto (posible bloqueo de seguridad).');
+    const reply = parts.map(p => p.text || '').join('').trim();
+    appendMessage('✨ IA B (Optimista)', reply, 'bg-purple-950/30 border-purple-800/40 text-purple-200 ml-auto');
+    conversationHistory.push({ speaker: 'B', text: reply });
+    return true;
+  } catch (err) {
+    stopWithError('IA B', err);
+    return false;
+  }
+}
+
+function sendUserMessage() {
+  const input = $('user-input');
+  const text = input.value.trim();
+  if (!text) return;
+  appendMessage('⚡ Tú (Intervención)', text, 'bg-zinc-900 border-zinc-700 text-amber-300 mx-auto text-center');
+  conversationHistory.push({ speaker: 'user', text });
+  input.value = '';
+}
+
+// Eventos (addEventListener en vez de onclick inline)
+$('settings-btn').addEventListener('click', toggleSettings);
+$('close-settings-btn').addEventListener('click', closeSettings);
+$('save-settings-btn').addEventListener('click', saveSettings);
+$('play-btn').addEventListener('click', togglePlay);
+$('send-btn').addEventListener('click', sendUserMessage);
+$('user-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendUserMessage(); });
+// Cerrar el modal tocando el fondo oscuro
+$('settings-modal').addEventListener('click', (e) => { if (e.target.id === 'settings-modal') closeSettings(); });
+
+loadSettings();
+</script>
+</body>
+</html>
