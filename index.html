@@ -331,6 +331,10 @@ async function callGroq(retried = false) {
   }
 }
 
+// Gemini 3 piensa mucho por defecto y tarda; para frases cortas le pedimos que piense poco.
+// Si el modelo no acepta este ajuste, se reintenta sin él y se recuerda.
+let geminiThinkingOk = true;
+
 async function callGemini(retried = false) {
   const apiKey = $('key-b').value.trim();
   const model = $('model-b').value.trim();
@@ -340,15 +344,25 @@ async function callGemini(retried = false) {
   if (!contents.length) contents.push({ role: 'user', parts: [{ text: 'Empieza tú la conversación con un tema cualquiera.' }] });
 
   try {
-    const res = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const send = (withThinking) => fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents
+        contents,
+        generationConfig: withThinking
+          ? { maxOutputTokens: 2048, thinkingConfig: { thinkingLevel: 'low' } }
+          : { maxOutputTokens: 2048 }
       })
-    });
-    const data = await res.json().catch(() => ({}));
+    }, 90000);
+    let res = await send(geminiThinkingOk);
+    let data = await res.json().catch(() => ({}));
+    if (data.error && geminiThinkingOk && /thinking/i.test(data.error.message || '')) {
+      geminiThinkingOk = false;
+      res = await send(false);
+      data = await res.json().catch(() => ({}));
+    }
     if (data.error) throw new Error(data.error.message);
     if (!res.ok) throw new Error(`Gemini respondió ${res.status}`);
     const cand = data.candidates?.[0];
