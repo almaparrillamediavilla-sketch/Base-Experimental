@@ -46,7 +46,12 @@ input, textarea { font-size: 16px !important; }
       </div>
       <div>
         <label class="text-zinc-400 block mb-1" for="model-a">Modelo IA A</label>
-        <input type="text" id="model-a" class="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-zinc-200" value="llama-3.1-8b-instant">
+        <div class="flex gap-2">
+          <input type="text" id="model-a" class="flex-1 min-w-0 bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-zinc-200" value="llama-3.1-8b-instant">
+          <button type="button" id="load-models-a" class="px-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg cursor-pointer" title="Cargar modelos disponibles">🔄</button>
+        </div>
+        <select id="models-list-a" style="display:none" class="w-full mt-2 bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-zinc-200"></select>
+        <p id="models-msg-a" class="text-zinc-500 mt-1"></p>
       </div>
       <div>
         <label class="text-zinc-400 block mb-1" for="prompt-a">System Prompt IA A</label>
@@ -61,7 +66,12 @@ input, textarea { font-size: 16px !important; }
       </div>
       <div>
         <label class="text-zinc-400 block mb-1" for="model-b">Modelo IA B</label>
-        <input type="text" id="model-b" class="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-zinc-200" value="gemini-2.5-flash">
+        <div class="flex gap-2">
+          <input type="text" id="model-b" class="flex-1 min-w-0 bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-zinc-200" value="gemini-2.5-flash">
+          <button type="button" id="load-models-b" class="px-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg cursor-pointer" title="Cargar modelos disponibles">🔄</button>
+        </div>
+        <select id="models-list-b" style="display:none" class="w-full mt-2 bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-zinc-200"></select>
+        <p id="models-msg-b" class="text-zinc-500 mt-1"></p>
       </div>
       <div>
         <label class="text-zinc-400 block mb-1" for="prompt-b">System Prompt IA B</label>
@@ -113,7 +123,10 @@ function loadSettings() {
   }
 }
 
-function openSettings() { $('settings-modal').style.display = 'flex'; }
+function openSettings() {
+  $('settings-modal').style.display = 'flex';
+  ['a', 'b'].forEach(x => { if ($('key-' + x).value.trim() && $('models-list-' + x).style.display === 'none') loadModels(x); });
+}
 function closeSettings() { $('settings-modal').style.display = 'none'; }
 function toggleSettings() {
   $('settings-modal').style.display === 'flex' ? closeSettings() : openSettings();
@@ -128,6 +141,73 @@ function saveSettings() {
   store('promptB', $('prompt-b').value);
   closeSettings();
   $('status-text').textContent = isRunning ? 'Conversando en directo...' : 'Listo. Pulsa Play';
+}
+
+// ---- Modelos disponibles ----
+const SKIP_GROQ = /whisper|tts|guard|playai|orpheus|distil|prompt/i;
+
+async function fetchModels(which) {
+  if (which === 'a') {
+    const key = $('key-a').value.trim();
+    if (!key) throw new Error('Pon primero la API Key de Groq.');
+    const res = await fetch('https://api.groq.com/openai/v1/models', { headers: { 'Authorization': `Bearer ${key}` } });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    return data.data.filter(m => m.active !== false && !SKIP_GROQ.test(m.id)).map(m => m.id).sort();
+  } else {
+    const key = $('key-b').value.trim();
+    if (!key) throw new Error('Pon primero la API Key de Gemini.');
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${encodeURIComponent(key)}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    return (data.models || [])
+      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map(m => m.name.replace(/^models\//, ''))
+      .filter(id => /gemini/i.test(id) && !/embedding|image|tts|audio|live/i.test(id))
+      .sort();
+  }
+}
+
+// Elige un modelo razonable: rápido y barato si existe
+function pickDefault(which, ids) {
+  const prefs = which === 'a'
+    ? [/llama.*instant/i, /llama.*versatile/i, /llama/i, /gpt-oss/i, /qwen/i]
+    : [/^gemini-[\d.]+-flash$/i, /flash-lite$/i, /flash/i, /pro/i];
+  for (const re of prefs) { const hit = ids.filter(id => re.test(id)).sort().reverse()[0]; if (hit) return hit; }
+  return ids[0];
+}
+
+async function loadModels(which) {
+  const sel = $('models-list-' + which), msg = $('models-msg-' + which), input = $('model-' + which);
+  msg.textContent = 'Cargando modelos...';
+  try {
+    const ids = await fetchModels(which);
+    if (!ids.length) throw new Error('Tu clave no tiene ningún modelo de chat disponible.');
+    sel.innerHTML = '';
+    ids.forEach(id => { const o = document.createElement('option'); o.value = o.textContent = id; sel.appendChild(o); });
+    if (!ids.includes(input.value.trim())) input.value = pickDefault(which, ids);
+    sel.value = input.value;
+    sel.style.display = 'block';
+    msg.textContent = `${ids.length} modelos disponibles. Elige uno en la lista.`;
+    return ids;
+  } catch (err) {
+    msg.textContent = 'No se pudieron cargar: ' + (err.message || err);
+    return null;
+  }
+}
+
+// Si el modelo no existe, cambia solo a uno disponible
+async function recoverModel(which, err) {
+  if (!/does not exist|not found|no access|not supported|decommissioned|deprecated/i.test(err.message || '')) return false;
+  const old = $('model-' + which).value.trim();
+  const ids = await loadModels(which);
+  if (!ids) return false;
+  const next = pickDefault(which, ids);
+  if (!next || next === old) return false;
+  $('model-' + which).value = next;
+  store(which === 'a' ? 'modelA' : 'modelB', next);
+  appendMessage('ℹ️ Aviso', `El modelo "${old}" no está disponible. Cambiado automáticamente a "${next}".`, 'bg-zinc-900 border-zinc-700 text-zinc-300 mx-auto text-center');
+  return true;
 }
 
 function setRunning(running, statusMsg) {
@@ -196,7 +276,7 @@ function historyFor(me) {
   });
 }
 
-async function callGroq() {
+async function callGroq(retried = false) {
   const apiKey = $('key-a').value.trim();
   const model = $('model-a').value.trim();
   const systemPrompt = $('prompt-a').value;
@@ -211,19 +291,21 @@ async function callGroq() {
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, messages, max_tokens: 150 })
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (data.error) throw new Error(data.error.message);
+    if (!res.ok) throw new Error(`Groq respondió ${res.status}`);
     const reply = data.choices[0].message.content.trim();
     appendMessage('🤖 IA A (Cínico)', reply, 'bg-cyan-950/30 border-cyan-800/40 text-cyan-200 mr-auto');
     conversationHistory.push({ speaker: 'A', text: reply });
     return true;
   } catch (err) {
+    if (!retried && await recoverModel('a', err)) return callGroq(true);
     stopWithError('IA A', err);
     return false;
   }
 }
 
-async function callGemini() {
+async function callGemini(retried = false) {
   const apiKey = $('key-b').value.trim();
   const model = $('model-b').value.trim();
   const systemPrompt = $('prompt-b').value;
@@ -249,6 +331,7 @@ async function callGemini() {
     conversationHistory.push({ speaker: 'B', text: reply });
     return true;
   } catch (err) {
+    if (!retried && await recoverModel('b', err)) return callGemini(true);
     stopWithError('IA B', err);
     return false;
   }
@@ -268,6 +351,10 @@ $('settings-btn').addEventListener('click', toggleSettings);
 $('close-settings-btn').addEventListener('click', closeSettings);
 $('save-settings-btn').addEventListener('click', saveSettings);
 $('play-btn').addEventListener('click', togglePlay);
+['a', 'b'].forEach(x => {
+  $('load-models-' + x).addEventListener('click', () => loadModels(x));
+  $('models-list-' + x).addEventListener('change', (e) => { $('model-' + x).value = e.target.value; });
+});
 $('send-btn').addEventListener('click', sendUserMessage);
 $('user-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendUserMessage(); });
 // Cerrar el modal tocando el fondo oscuro
