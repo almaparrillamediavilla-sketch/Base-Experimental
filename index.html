@@ -12,6 +12,9 @@ body { background-color: #09090b; color: #f4f4f5; }
 button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 /* 16px evita que iOS haga zoom al enfocar campos */
 input, textarea { font-size: 16px !important; }
+/* Estilos críticos del modal sin depender de Tailwind (por si el CDN tarda o falla) */
+#settings-modal { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.9); padding: 1rem; flex-direction: column; justify-content: center; }
+#settings-modal > div { width: 100%; max-width: 28rem; margin: 0 auto; max-height: 90dvh; overflow-y: auto; }
 </style>
 </head>
 <body class="flex flex-col h-[100dvh] max-w-md mx-auto font-sans relative">
