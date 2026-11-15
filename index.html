@@ -150,14 +150,14 @@ async function fetchModels(which) {
   if (which === 'a') {
     const key = $('key-a').value.trim();
     if (!key) throw new Error('Pon primero la API Key de Groq.');
-    const res = await fetch('https://api.groq.com/openai/v1/models', { headers: { 'Authorization': `Bearer ${key}` } });
+    const res = await fetchWithTimeout('https://api.groq.com/openai/v1/models', { headers: { 'Authorization': `Bearer ${key}` } });
     const data = await res.json();
     if (data.error) throw new Error(data.error.message);
     return data.data.filter(m => m.active !== false && !SKIP_GROQ.test(m.id)).map(m => m.id).sort();
   } else {
     const key = $('key-b').value.trim();
     if (!key) throw new Error('Pon primero la API Key de Gemini.');
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${encodeURIComponent(key)}`);
+    const res = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${encodeURIComponent(key)}`);
     const data = await res.json();
     if (data.error) throw new Error(data.error.message);
     return (data.models || [])
@@ -260,6 +260,7 @@ function stopWithError(who, err) {
 async function loopStep() {
   if (!isRunning || isBusy) return;
   isBusy = true;
+  $('status-text').textContent = `${NAMES[currentTurn]} está escribiendo...`;
   let ok;
   try {
     ok = currentTurn === 'A' ? await callGroq() : await callGemini();
@@ -267,10 +268,27 @@ async function loopStep() {
     isBusy = false;
   }
   if (ok) currentTurn = currentTurn === 'A' ? 'B' : 'A';
-  if (isRunning) setTimeout(loopStep, 3500);
+  if (isRunning) {
+    $('status-text').textContent = 'Conversando en directo...';
+    setTimeout(loopStep, 3500);
+  }
 }
 
 const NAMES = { A: 'Groq', B: 'Gemini' };
+
+// fetch con límite de tiempo: si la API no contesta, se muestra un error en vez de quedarse colgado
+async function fetchWithTimeout(url, opts = {}, ms = 45000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error(`No respondió en ${ms / 1000} segundos. Revisa tu conexión y pulsa Play otra vez.`);
+    throw new Error('No se pudo conectar: ' + e.message);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // Construye el historial desde el punto de vista de cada IA:
 // sus propios mensajes son "assistant/model", el resto "user".
@@ -292,15 +310,17 @@ async function callGroq(retried = false) {
   if (messages.length === 1) messages.push({ role: 'user', content: 'Empieza tú la conversación con un tema cualquiera.' });
 
   try {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    const res = await fetchWithTimeout('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, max_tokens: 150 })
+      body: JSON.stringify({ model, messages, max_tokens: 1024 })
     });
     const data = await res.json().catch(() => ({}));
     if (data.error) throw new Error(data.error.message);
     if (!res.ok) throw new Error(`Groq respondió ${res.status}`);
-    const reply = data.choices[0].message.content.trim();
+    const choice = data.choices?.[0];
+    const reply = (choice?.message?.content || '').trim();
+    if (!reply) throw new Error(`Groq devolvió una respuesta vacía (motivo: ${choice?.finish_reason || 'desconocido'}). Prueba otro modelo en Ajustes.`);
     appendMessage('🤖 Groq', reply, 'bg-cyan-950/30 border-cyan-800/40 text-cyan-200 mr-auto');
     conversationHistory.push({ speaker: 'A', text: reply });
     return true;
@@ -320,7 +340,7 @@ async function callGemini(retried = false) {
   if (!contents.length) contents.push({ role: 'user', parts: [{ text: 'Empieza tú la conversación con un tema cualquiera.' }] });
 
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+    const res = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -328,11 +348,15 @@ async function callGemini(retried = false) {
         contents
       })
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (data.error) throw new Error(data.error.message);
-    const parts = data.candidates?.[0]?.content?.parts;
-    if (!parts) throw new Error('Gemini no devolvió texto (posible bloqueo de seguridad).');
-    const reply = parts.map(p => p.text || '').join('').trim();
+    if (!res.ok) throw new Error(`Gemini respondió ${res.status}`);
+    const cand = data.candidates?.[0];
+    const reply = (cand?.content?.parts || []).filter(p => !p.thought).map(p => p.text || '').join('').trim();
+    if (!reply) {
+      const why = cand?.finishReason || data.promptFeedback?.blockReason || 'desconocido';
+      throw new Error(`Gemini devolvió una respuesta vacía (motivo: ${why}). Prueba otro modelo en Ajustes.`);
+    }
     appendMessage('✨ Gemini', reply, 'bg-purple-950/30 border-purple-800/40 text-purple-200 ml-auto');
     conversationHistory.push({ speaker: 'B', text: reply });
     return true;
