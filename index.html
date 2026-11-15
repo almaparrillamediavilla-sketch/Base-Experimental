@@ -67,7 +67,7 @@ input, textarea { font-size: 16px !important; }
       <div>
         <label class="text-zinc-400 block mb-1" for="model-b">Modelo IA B</label>
         <div class="flex gap-2">
-          <input type="text" id="model-b" class="flex-1 min-w-0 bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-zinc-200" value="gemini-2.5-flash">
+          <input type="text" id="model-b" class="flex-1 min-w-0 bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-zinc-200" value="gemini-3.8-flash">
           <button type="button" id="load-models-b" class="px-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg cursor-pointer" title="Cargar modelos disponibles">🔄</button>
         </div>
         <select id="models-list-b" style="display:none" class="w-full mt-2 bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-zinc-200"></select>
@@ -198,11 +198,15 @@ async function loadModels(which) {
 
 // Si el modelo no existe, cambia solo a uno disponible
 async function recoverModel(which, err) {
-  if (!/does not exist|not found|no access|not supported|decommissioned|deprecated/i.test(err.message || '')) return false;
+  const text = err.message || '';
+  if (!/does not exist|not found|no access|not supported|decommissioned|deprecated|no longer|not available|unavailable|retired|is not a valid model/i.test(text)) return false;
   const old = $('model-' + which).value.trim();
   const ids = await loadModels(which);
   if (!ids) return false;
-  const next = pickDefault(which, ids);
+  const candidates = ids.filter(id => id !== old);
+  // Si el propio error recomienda un modelo y está en la lista, usar ese
+  const suggested = (text.match(/use (?:models\/)?([\w.\-\/]+?)(?=[\s,.;]*(?:for|instead|$|\s))/i) || [])[1];
+  const next = (suggested && candidates.includes(suggested)) ? suggested : pickDefault(which, candidates);
   if (!next || next === old) return false;
   $('model-' + which).value = next;
   store(which === 'a' ? 'modelA' : 'modelB', next);
